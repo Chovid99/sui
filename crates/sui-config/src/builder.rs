@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::genesis::{TokenAllocation, TokenDistributionScheduleBuilder};
-use crate::genesis_config::AccountConfig;
+use crate::genesis_config::{AccountConfig, DEFAULT_GAS_AMOUNT};
 use crate::node::{
     default_enable_index_processing, default_end_of_epoch_broadcast_channel_capacity,
     AuthorityKeyPairWithPath, DBCheckpointConfig, ExpensiveSafetyCheckConfig, KeyPairWithPath,
@@ -408,7 +408,16 @@ impl<R: rand::RngCore + rand::CryptoRng> ConfigBuilder<R> {
         self.get_or_init_genesis_config();
         let genesis_config = self.genesis_config.unwrap();
 
-        let (account_keys, allocations) = genesis_config.generate_accounts(&mut rng).unwrap();
+        let (account_keys, mut allocations) = genesis_config.generate_accounts(&mut rng).unwrap();
+        // Also make sure that each validator's account contains at least 1 gas object for validator
+        // operations.
+        for validator in &validators {
+            allocations.push(TokenAllocation {
+                recipient_address: (&validator.genesis_info.account_key_pair.public()).into(),
+                amount_mist: DEFAULT_GAS_AMOUNT,
+                staked_with_validator: None,
+            });
+        }
 
         let token_distribution_schedule = {
             let mut builder = TokenDistributionScheduleBuilder::new();

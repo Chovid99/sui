@@ -31,6 +31,7 @@ use sui_sdk::sui_client_config::{SuiClientConfig, SuiEnv};
 use sui_sdk::wallet_context::WalletContext;
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_swarm::memory::{Swarm, SwarmBuilder};
+use sui_test_transaction_builder::TestTransactionBuilder;
 use sui_types::base_types::{AuthorityName, ObjectID, SuiAddress};
 use sui_types::committee::EpochId;
 use sui_types::crypto::KeypairTraits;
@@ -39,7 +40,8 @@ use sui_types::object::Object;
 use sui_types::sui_system_state::epoch_start_sui_system_state::EpochStartSystemStateTrait;
 use sui_types::sui_system_state::SuiSystemState;
 use sui_types::sui_system_state::SuiSystemStateTrait;
-use sui_types::transaction::VerifiedTransaction;
+use sui_types::transaction::{CallArg, VerifiedTransaction};
+use sui_types::SUI_SYSTEM_OBJECT_ID;
 
 const NUM_VALIDAOTR: usize = 4;
 
@@ -314,6 +316,50 @@ impl TestCluster {
             .await
     }
 
+    pub fn get_validator_account_addresses(&self) -> Vec<SuiAddress> {
+        self.swarm
+            .validators()
+            .map(|v| (&v.config.account_key_pair.keypair().public()).into())
+            .collect()
+    }
+
+    pub async fn send_validator_leaving_request(
+        &self,
+        address: SuiAddress,
+    ) -> SuiTransactionBlockResponse {
+        let keypair = self.get_validator_account_key(address);
+
+        let gas_object = self
+            .wallet
+            .get_one_gas_object_owned_by_address(address)
+            .await
+            .unwrap()
+            .unwrap();
+        let tx =
+            TestTransactionBuilder::new(address, gas_object, self.get_reference_gas_price().await)
+                .move_call(
+                    SUI_SYSTEM_OBJECT_ID,
+                    "sui_system",
+                    "request_remove_validator",
+                    vec![CallArg::SUI_SYSTEM_MUT],
+                )
+                .build_and_sign(keypair);
+        let response = self.execute_transaction(tx).await.unwrap();
+        assert_eq!(response.status_ok(), Some(true));
+        response
+    }
+
+    fn get_validator_account_key(&self, address: SuiAddress) -> &SuiKeyPair {
+        for validator in self.swarm.validators() {
+            let keypair = validator.config.account_key_pair.keypair();
+            let addr: SuiAddress = (&keypair.public()).into();
+            if addr == address {
+                return keypair;
+            }
+        }
+        unreachable!("Cannot find the validator with address {}", address);
+    }
+
     #[cfg(msim)]
     pub fn set_safe_mode_expected(&self, value: bool) {
         for n in self.all_node_handles() {
@@ -555,7 +601,10 @@ impl TestClusterBuilder {
 
     /// Start a Swarm and set up WalletConfig
     async fn start_swarm(&mut self) -> Result<Swarm, anyhow::Error> {
-        let mut builder: SwarmBuilder = Swarm::builder()
+        self.get_or_init_genesis_config();
+        let genesis_config = self.genesis_config.take().unwrap();
+
+        let builder: SwarmBuilder = Swarm::builder()
             .committee_size(
                 NonZeroUsize::new(self.num_validators.unwrap_or(NUM_VALIDAOTR)).unwrap(),
             )
@@ -563,11 +612,8 @@ impl TestClusterBuilder {
             .with_db_checkpoint_config(self.db_checkpoint_config_validators.clone())
             .with_supported_protocol_versions_config(
                 self.validator_supported_protocol_versions_config.clone(),
-            );
-
-        if let Some(genesis_config) = self.genesis_config.take() {
-            builder = builder.with_genesis_config(genesis_config);
-        }
+            )
+            .with_genesis_config(genesis_config);
 
         let mut swarm = builder.build();
         swarm.launch().await?;
