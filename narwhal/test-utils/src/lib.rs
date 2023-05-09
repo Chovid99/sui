@@ -32,6 +32,7 @@ use std::{
 use store::rocks::DBMap;
 use store::rocks::MetricConf;
 use store::rocks::ReadWriteOptions;
+use sui_protocol_config::ProtocolVersion;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tracing::info;
 use types::{
@@ -734,6 +735,7 @@ pub struct Builder<R = OsRng> {
     number_of_workers: NonZeroUsize,
     randomize_ports: bool,
     epoch: Epoch,
+    protocol_version: ProtocolVersion,
     stake: VecDeque<Stake>,
 }
 
@@ -747,6 +749,7 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             epoch: Epoch::default(),
+            protocol_version: ProtocolVersion::max(),
             rng: OsRng,
             committee_size: NonZeroUsize::new(4).unwrap(),
             number_of_workers: NonZeroUsize::new(4).unwrap(),
@@ -777,6 +780,11 @@ impl<R> Builder<R> {
         self
     }
 
+    pub fn protocol_version(mut self, protocol_version: ProtocolVersion) -> Self {
+        self.protocol_version = protocol_version;
+        self
+    }
+
     pub fn stake_distribution(mut self, stake: VecDeque<Stake>) -> Self {
         self.stake = stake;
         self
@@ -786,6 +794,7 @@ impl<R> Builder<R> {
         Builder {
             rng,
             epoch: self.epoch,
+            protocol_version: self.protocol_version,
             committee_size: self.committee_size,
             number_of_workers: self.number_of_workers,
             randomize_ports: self.randomize_ports,
@@ -821,7 +830,7 @@ impl<R: rand::RngCore + rand::CryptoRng> Builder<R> {
         authorities.sort_by_key(|a1| a1.public_key());
 
         // create the committee in order to assign the ids to the authorities
-        let mut committee_builder = CommitteeBuilder::new(self.epoch);
+        let mut committee_builder = CommitteeBuilder::new(self.epoch, self.protocol_version);
         for a in authorities.iter() {
             committee_builder = committee_builder.add_authority(
                 a.public_key().clone(),

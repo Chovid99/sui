@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 /// The minimum and maximum protocol versions supported by this build.
 const MIN_PROTOCOL_VERSION: u64 = 1;
-const MAX_PROTOCOL_VERSION: u64 = 10;
+const MAX_PROTOCOL_VERSION: u64 = 11;
 
 // Record history of protocol version allocations here:
 //
@@ -36,8 +36,10 @@ const MAX_PROTOCOL_VERSION: u64 = 10;
 // Version 10:increase bytecode verifier `max_verifier_meter_ticks_per_function` and
 //            `max_meter_ticks_per_module` limits each from 6_000_000 to 16_000_000. sui-system
 //            framework changes.
-
-#[derive(Copy, Clone, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+// Version 11: Change NW entities to use versioned metadata field.
+#[derive(
+    Copy, Clone, Default, Debug, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub struct ProtocolVersion(u64);
 
 impl ProtocolVersion {
@@ -1150,6 +1152,7 @@ impl ProtocolConfig {
                 cfg.max_meter_ticks_per_module = Some(16_000_000);
                 cfg
             }
+            11 => Self::get_for_version_impl(version - 1),
             // Use this template when making changes:
             //
             //     // modify an existing constant.
