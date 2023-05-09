@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use fastcrypto::traits::ToFromBytes;
+use fastcrypto::{traits::ToFromBytes, encoding::{Base64, Encoding}};
 use once_cell::sync::OnceCell;
 use rand::{rngs::StdRng, SeedableRng};
 use roaring::RoaringBitmap;
@@ -367,4 +367,53 @@ fn test_max_sig() {
     let sig = Signature::new_secure(&msg, &keys[0]);
     let multisig = MultiSig::combine(vec![sig; 1], low_threshold_pk).unwrap();
     assert!(multisig.verify_secure_generic(&msg, address).is_ok());
+}
+
+#[test]
+fn multisig_address_consistency_test() {
+    let keys = keys();
+    let pk1 = keys[0].public();
+    let pk2 = keys[1].public();
+
+    let multisig_pk = MultiSigPublicKey::new(
+        vec![pk1.clone(), pk2.clone()],
+        vec![2, 3],
+        4,
+    )
+    .unwrap();
+    let addr = SuiAddress::from(&multisig_pk);
+    assert_eq!(addr, SuiAddress::from_str("0x877aa5c525c5662060e9f01c6f8a931cdc4917ac926666ac9b61562ead3e3238").unwrap());
+}
+
+#[test]
+fn multisig_serde_test() {
+    let keys = keys();
+    let pk1 = keys[0].public();
+    let pk2 = keys[1].public();
+    let kp3: SuiKeyPair = SuiKeyPair::Secp256k1(get_key_pair_from_rng(&mut StdRng::from_seed([1; 32])).1);
+    let pk3 = kp3.public();
+
+    let multisig_pk = MultiSigPublicKey::new(
+        vec![pk1.clone(), pk2.clone(), pk3.clone()],
+        vec![1, 2, 3],
+        3,
+    )
+    .unwrap();
+    let addr = SuiAddress::from(&multisig_pk);
+
+    let msg = IntentMessage::new(
+        Intent::sui_transaction(),
+        PersonalMessage {
+            message: "Hello".as_bytes().to_vec(),
+        },
+    );
+    println!("msg: {:?}", bcs::to_bytes(&msg).unwrap());
+    let sig1 = Signature::new_secure(&msg, &keys[0]);
+    let sig2 = Signature::new_secure(&msg, &keys[1]);
+
+    let multi_sig = MultiSig::combine(vec![sig1.clone(), sig2.clone()], multisig_pk.clone()).unwrap();
+    assert!(multi_sig.verify_secure_generic(&msg, addr).is_ok());
+    println!("multi_sig: {:?}", Base64::encode(multi_sig.as_bytes()));
+
+    assert_eq!(addr, SuiAddress::from_str("0x7a18ea71a2fdee6809d7793bd549242809996af5818108d630d9da34cecb4a12").unwrap());
 }
