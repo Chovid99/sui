@@ -3,8 +3,6 @@
 
 use std::sync::Arc;
 
-use anyhow::anyhow;
-
 use async_trait::async_trait;
 use cached::proc_macro::cached;
 use cached::SizedCache;
@@ -28,7 +26,7 @@ use sui_types::object::{Object, Owner};
 use sui_types::parse_sui_struct_tag;
 
 use crate::api::{cap_page_limit, CoinReadApiServer, JsonRpcMetrics};
-use crate::error::Error;
+use crate::error::{Error, SuiRpcInputError};
 use crate::{with_tracing, SuiRpcModule};
 
 pub struct CoinReadApi {
@@ -47,7 +45,7 @@ impl CoinReadApi {
         cursor: (String, ObjectID),
         limit: Option<usize>,
         one_coin_type_only: bool,
-    ) -> anyhow::Result<CoinPage> {
+    ) -> Result<CoinPage, Error> {
         let limit = cap_page_limit(limit);
         self.metrics.get_coins_limit.report(limit as u64);
         let state = self.state.clone();
@@ -123,7 +121,7 @@ async fn find_package_object_id(
             created: &[(ObjectRef, Owner)],
             object_struct_tag: &StructTag,
             package_id: &ObjectID,
-        ) -> Result<ObjectID, anyhow::Error> {
+        ) -> Result<ObjectID, Error> {
             for ((id, version, _), _) in created {
                 if let Ok(past_object) = state.get_past_object_read(id, *version) {
                     if let Ok(object) = past_object.into_object() {
@@ -133,11 +131,10 @@ async fn find_package_object_id(
                     }
                 }
             }
-            Err(anyhow!(
+            Err(SuiRpcInputError::GenericNotFound(format!(
                 "Cannot find object [{}] from [{}] package event.",
-                object_struct_tag,
-                package_id
-            ))
+                object_struct_tag, package_id
+            )))?
         }
 
         let object_id =
@@ -211,15 +208,16 @@ impl CoinReadApiServer for CoinReadApi {
                         Some(obj) => {
                             let coin_type = obj.coin_type_maybe();
                             if coin_type.is_none() {
-                                Err(anyhow!(
-                                    "Invalid Cursor {:?}, Object is not a coin",
-                                    object_id
-                                ))
+                                Err(Error::SuiRpcInputError(SuiRpcInputError::GenericInvalid(
+                                    format!("Invalid Cursor {:?}: not a coin", object_id),
+                                )))
                             } else {
                                 Ok((coin_type.unwrap().to_string(), object_id))
                             }
                         }
-                        None => Err(anyhow!("Invalid Cursor {:?}, Object not found", object_id)),
+                        None => Err(Error::SuiRpcInputError(SuiRpcInputError::GenericInvalid(
+                            format!("Invalid Cursor {:?}: not found", object_id),
+                        ))),
                     }
                 }
                 None => {
