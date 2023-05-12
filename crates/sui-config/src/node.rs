@@ -3,7 +3,6 @@
 
 use crate::certificate_deny_config::CertificateDenyConfig;
 use crate::genesis;
-use crate::genesis_config::ValidatorGenesisConfig;
 use crate::p2p::P2pConfig;
 use crate::transaction_deny_config::TransactionDenyConfig;
 use crate::Config;
@@ -22,12 +21,12 @@ use sui_keys::keypair_file::{read_authority_keypair_from_file, read_keypair_from
 use sui_protocol_config::SupportedProtocolVersions;
 use sui_storage::object_store::ObjectStoreConfig;
 use sui_types::base_types::{ObjectID, SuiAddress};
+use sui_types::crypto::AuthorityPublicKeyBytes;
 use sui_types::crypto::KeypairTraits;
 use sui_types::crypto::NetworkKeyPair;
 use sui_types::crypto::NetworkPublicKey;
 use sui_types::crypto::SuiKeyPair;
 use sui_types::crypto::{get_key_pair_from_rng, AccountKeyPair, AuthorityKeyPair};
-use sui_types::crypto::{AuthorityPublicKeyBytes, PublicKey};
 use sui_types::multiaddr::Multiaddr;
 
 // Default max number of concurrent requests served
@@ -525,31 +524,6 @@ pub struct ValidatorInfo {
 }
 
 impl ValidatorInfo {
-    pub fn new(name: String, config: &ValidatorGenesisConfig) -> Self {
-        let protocol_key: AuthorityPublicKeyBytes = config.key_pair.public().into();
-        let account_key: PublicKey = config.account_key_pair.public();
-        let network_key: NetworkPublicKey = config.network_key_pair.public().clone();
-        let worker_key: NetworkPublicKey = config.worker_key_pair.public().clone();
-        let network_address = config.network_address.clone();
-
-        Self {
-            name,
-            protocol_key,
-            worker_key,
-            network_key,
-            account_address: SuiAddress::from(&account_key),
-            gas_price: config.gas_price,
-            commission_rate: config.commission_rate,
-            network_address,
-            p2p_address: config.p2p_address.clone(),
-            narwhal_primary_address: config.narwhal_primary_address.clone(),
-            narwhal_worker_address: config.narwhal_worker_address.clone(),
-            description: String::new(),
-            image_url: String::new(),
-            project_url: String::new(),
-        }
-    }
-
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -795,56 +769,13 @@ mod tests {
     use crate::NodeConfig;
 
     #[test]
-    fn serialize_genesis_config_from_file() {
+    fn serialize_genesis_from_file() {
         let g = Genesis::new_from_file("path/to/file");
 
         let s = serde_yaml::to_string(&g).unwrap();
         assert_eq!("---\ngenesis-file-location: path/to/file\n", s);
         let loaded_genesis: Genesis = serde_yaml::from_str(&s).unwrap();
         assert_eq!(g, loaded_genesis);
-    }
-
-    #[test]
-    fn serialize_genesis_config_in_place() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let network_config = crate::builder::ConfigBuilder::new(&dir).build();
-        let genesis = network_config.genesis;
-
-        let g = Genesis::new(genesis);
-
-        let mut s = serde_yaml::to_string(&g).unwrap();
-        let loaded_genesis: Genesis = serde_yaml::from_str(&s).unwrap();
-        loaded_genesis
-            .genesis()
-            .unwrap()
-            .checkpoint_contents()
-            .digest(); // cache digest before comparing.
-        assert_eq!(g, loaded_genesis);
-
-        // If both in-place and file location are provided, prefer the in-place variant
-        s.push_str("\ngenesis-file-location: path/to/file");
-        let loaded_genesis: Genesis = serde_yaml::from_str(&s).unwrap();
-        loaded_genesis
-            .genesis()
-            .unwrap()
-            .checkpoint_contents()
-            .digest(); // cache digest before comparing.
-        assert_eq!(g, loaded_genesis);
-    }
-
-    #[test]
-    fn load_genesis_config_from_file() {
-        let file = tempfile::NamedTempFile::new().unwrap();
-        let genesis_config = Genesis::new_from_file(file.path());
-
-        let dir = tempfile::TempDir::new().unwrap();
-        let network_config = crate::builder::ConfigBuilder::new(&dir).build();
-        let genesis = network_config.genesis;
-        genesis.save(file.path()).unwrap();
-
-        let loaded_genesis = genesis_config.genesis().unwrap();
-        loaded_genesis.checkpoint_contents().digest(); // cache digest before comparing.
-        assert_eq!(&genesis, loaded_genesis);
     }
 
     #[test]

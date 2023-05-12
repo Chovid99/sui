@@ -101,7 +101,7 @@ where
     R: rand::CryptoRng + rand::RngCore,
 {
     let dir = tempfile::TempDir::new().unwrap();
-    let network_config = sui_config::builder::ConfigBuilder::new(&dir)
+    let network_config = sui_swarm_config::network_config_builder::ConfigBuilder::new(&dir)
         .rng(rng)
         .build();
     let genesis = network_config.genesis;
@@ -216,7 +216,7 @@ async fn init_genesis(
     let pkg_id = pkg.id();
     genesis_objects.push(pkg);
 
-    let mut builder = sui_config::genesis::Builder::new().add_objects(genesis_objects);
+    let mut builder = sui_genesis_builder::Builder::new().add_objects(genesis_objects);
     let mut key_pairs = Vec::new();
     for i in 0..committee_size {
         let key_pair: AuthorityKeyPair = get_key_pair().1;
