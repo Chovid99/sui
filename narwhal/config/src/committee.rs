@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::num::NonZeroU64;
-use sui_protocol_config::ProtocolVersion;
 
 #[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Authority {
@@ -106,9 +105,6 @@ pub struct Committee {
     authorities_by_id: BTreeMap<AuthorityIdentifier, Authority>,
     /// The epoch number of this committee
     epoch: Epoch,
-    // Protocol version for this epoch.
-    #[serde(skip)]
-    protocol_version: ProtocolVersion,
     /// The quorum threshold (2f+1)
     #[serde(skip)]
     quorum_threshold: Stake,
@@ -144,15 +140,10 @@ impl Display for AuthorityIdentifier {
 impl Committee {
     /// Any committee should be created via the CommitteeBuilder - this is intentionally be marked as
     /// private method.
-    fn new(
-        authorities: BTreeMap<PublicKey, Authority>,
-        epoch: Epoch,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
+    fn new(authorities: BTreeMap<PublicKey, Authority>, epoch: Epoch) -> Self {
         let mut committee = Self {
             authorities,
             epoch,
-            protocol_version,
             authorities_by_id: Default::default(),
             validity_threshold: 0,
             quorum_threshold: 0,
@@ -216,11 +207,6 @@ impl Committee {
     /// Returns the current epoch.
     pub fn epoch(&self) -> Epoch {
         self.epoch
-    }
-
-    /// Returns the protocol version.
-    pub fn protocol_version(&self) -> ProtocolVersion {
-        self.protocol_version
     }
 
     /// Provided an identifier it returns the corresponding authority
@@ -463,21 +449,19 @@ impl Committee {
     /// Used for testing - not recommended to use for any other case.
     /// It creates a new instance with updated epoch
     pub fn advance_epoch(&self, new_epoch: Epoch) -> Committee {
-        Committee::new(self.authorities.clone(), new_epoch, ProtocolVersion::MIN)
+        Committee::new(self.authorities.clone(), new_epoch)
     }
 }
 
 pub struct CommitteeBuilder {
     epoch: Epoch,
-    protocol_version: ProtocolVersion,
     authorities: BTreeMap<PublicKey, Authority>,
 }
 
 impl CommitteeBuilder {
-    pub fn new(epoch: Epoch, protocol_version: ProtocolVersion) -> Self {
+    pub fn new(epoch: Epoch) -> Self {
         Self {
             epoch,
-            protocol_version,
             authorities: BTreeMap::new(),
         }
     }
@@ -495,7 +479,7 @@ impl CommitteeBuilder {
     }
 
     pub fn build(self) -> Committee {
-        Committee::new(self.authorities, self.epoch, self.protocol_version)
+        Committee::new(self.authorities, self.epoch)
     }
 }
 
@@ -507,7 +491,6 @@ mod tests {
     use mysten_network::Multiaddr;
     use rand::thread_rng;
     use std::collections::BTreeMap;
-    use sui_protocol_config::ProtocolVersion;
 
     #[test]
     fn committee_load() {
@@ -532,7 +515,7 @@ mod tests {
             .collect::<BTreeMap<PublicKey, Authority>>();
 
         // WHEN
-        let committee = Committee::new(authorities, 10, ProtocolVersion::max());
+        let committee = Committee::new(authorities, 10);
 
         // THEN
         assert_eq!(committee.authorities_by_id.len() as u64, num_of_authorities);

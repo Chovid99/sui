@@ -134,8 +134,7 @@ impl EpochStartSystemStateTrait for EpochStartSystemStateV1 {
 
     #[allow(clippy::mutable_key_type)]
     fn get_narwhal_committee(&self) -> NarwhalCommittee {
-        let mut committee_builder =
-            CommitteeBuilder::new(self.epoch as narwhal_config::Epoch, self.protocol_version());
+        let mut committee_builder = CommitteeBuilder::new(self.epoch as narwhal_config::Epoch);
 
         for validator in self.active_validators.iter() {
             committee_builder = committee_builder.add_authority(

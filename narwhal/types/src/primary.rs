@@ -36,7 +36,7 @@ use std::{
     collections::{HashMap, HashSet},
     time::{Duration, SystemTime},
 };
-use sui_protocol_config::ProtocolVersion;
+use sui_protocol_config::ProtocolConfig;
 use tracing::warn;
 
 /// The round number.
@@ -94,15 +94,8 @@ pub enum VersionedMetadata {
     V1(MetadataV1),
 }
 
-impl Default for VersionedMetadata {
-    fn default() -> Self {
-        // Default to the latest version
-        Self::new(ProtocolVersion::MAX)
-    }
-}
-
 impl VersionedMetadata {
-    pub fn new(_protocol_version: ProtocolVersion) -> Self {
+    pub fn new(_protocol_config: &ProtocolConfig) -> Self {
         Self::V1(MetadataV1 {
             created_at: now(),
             received_at: None,
@@ -115,6 +108,7 @@ pub trait MetadataAPI {
     fn created_at(&self) -> &TimestampMs;
     fn created_at_mut(&mut self) -> &mut TimestampMs;
     fn received_at(&self) -> Option<TimestampMs>;
+    // fn received_at_mut(&mut self) -> Option<&mut TimestampMs>;
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Arbitrary, MallocSizeOf)]
@@ -140,6 +134,10 @@ impl MetadataAPI for MetadataV1 {
     fn received_at(&self) -> Option<TimestampMs> {
         self.received_at
     }
+
+    // fn received_at_mut(&mut self) -> Option<&mut TimestampMs> {
+    //     self.received_at.as_mut()
+    // }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Arbitrary)]
@@ -149,25 +147,10 @@ pub enum Batch {
     V2(BatchV2),
 }
 
-impl Default for Batch {
-    fn default() -> Self {
-        // Default to the latest version
-        Self::new_with_version(Vec::new(), ProtocolVersion::MAX)
-    }
-}
-
 impl Batch {
-    pub fn new(transactions: Vec<Transaction>) -> Self {
-        // Use latest version
-        Batch::new_with_version(transactions, ProtocolVersion::MAX)
-    }
-
-    pub fn new_with_version(
-        transactions: Vec<Transaction>,
-        protocol_version: ProtocolVersion,
-    ) -> Self {
-        if protocol_version >= ProtocolVersion::new(11) {
-            return Self::V2(BatchV2::new(transactions));
+    pub fn new(transactions: Vec<Transaction>, protocol_config: &ProtocolConfig) -> Self {
+        if protocol_config.narwhal_versioned_metadata() {
+            Self::V2(BatchV2::new(transactions, protocol_config))
         } else {
             Self::V1(BatchV1::new(transactions))
         }
@@ -250,7 +233,7 @@ impl BatchV1 {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Default, Debug, PartialEq, Eq, Arbitrary)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Arbitrary)]
 pub struct BatchV2 {
     pub transactions: Vec<Transaction>,
     pub versioned_metadata: VersionedMetadata,
@@ -283,10 +266,10 @@ impl BatchAPI for BatchV2 {
 }
 
 impl BatchV2 {
-    pub fn new(transactions: Vec<Transaction>) -> Self {
+    pub fn new(transactions: Vec<Transaction>, protocol_config: &ProtocolConfig) -> Self {
         Self {
             transactions,
-            versioned_metadata: VersionedMetadata::default(),
+            versioned_metadata: VersionedMetadata::new(protocol_config),
         }
     }
 
@@ -1449,7 +1432,7 @@ pub struct WorkerDeleteBatchesMessage {
     pub digests: Vec<BatchDigest>,
 }
 
-#[derive(Clone, Default, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BatchMessage {
     // TODO: revisit including the digest here [see #188]
     pub digest: BatchDigest,
@@ -1499,6 +1482,14 @@ pub struct WorkerOurBatchMessage {
     pub digest: BatchDigest,
     pub worker_id: WorkerId,
     pub metadata: Metadata,
+}
+
+/// Used by worker to inform primary it sealed a new batch.
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+pub struct WorkerOurBatchMessageV2 {
+    pub digest: BatchDigest,
+    pub worker_id: WorkerId,
+    pub metadata: VersionedMetadata,
 }
 
 /// Used by worker to inform primary it received a batch from another authority.
@@ -1576,13 +1567,16 @@ mod tests {
         VersionedMetadata,
     };
     use std::time::Duration;
-    use sui_protocol_config::ProtocolVersion;
+    use sui_protocol_config::{ProtocolConfig, ProtocolVersion};
     use tokio::time::sleep;
 
     #[tokio::test]
     async fn test_elapsed() {
         // BatchV1
-        let batch = Batch::new_with_version(vec![], ProtocolVersion::new(10));
+        let batch = Batch::new(
+            vec![],
+            &ProtocolConfig::get_for_version(ProtocolVersion::new(10)),
+        );
         assert!(batch.metadata().created_at > 0);
 
         sleep(Duration::from_secs(2)).await;
@@ -1590,7 +1584,10 @@ mod tests {
         assert!(batch.metadata().created_at.elapsed().as_secs_f64() >= 2.0);
 
         // BatchV2
-        let batch = Batch::new_with_version(vec![], ProtocolVersion::new(11));
+        let batch = Batch::new(
+            vec![],
+            &ProtocolConfig::get_for_version(ProtocolVersion::new(11)),
+        );
 
         assert!(*batch.versioned_metadata().created_at() > 0);
 
