@@ -810,10 +810,7 @@ fn verify_instr(
         Bytecode::VecPack(idx, num) => {
             let element_type = &verifier.resolver.signature_at(*idx).0[0];
             for _ in 0..*num {
-                let operand_type = safe_unwrap!(verifier.stack.pop());
-                if element_type != &operand_type {
-                    return Err(verifier.error(StatusCode::TYPE_MISMATCH, offset));
-                }
+                verifier.stack.pop().unwrap();
             }
             verifier.push(meter, ST::Vector(Box::new(element_type.clone())))?;
         }
